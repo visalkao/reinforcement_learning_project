@@ -83,6 +83,7 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.target_radius = 30
         self.eph = None
 
+    from time import time
     def step(self, action):
         assert self.action_space.contains(action), f"{action!r} ({type(action)}) invalid"
         assert self.state is not None, "Call reset before using step method."
@@ -134,20 +135,26 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         terminated = False
         reward = 0
         
-        target_x =  self.eph.target_cartesian[self.eph.nb_step_done-1][0]
-        target_y =  self.eph.target_cartesian[self.eph.nb_step_done-1][1]
+        x_0 = 500 
+        y_0 = 500 * 2.5 / 2
 
-        print(target_x, target_y)
+        target_x = self.eph.target_cartesian[self.eph.nb_step_done-1][0]
+        target_y = self.eph.target_cartesian[self.eph.nb_step_done-1][1]
+
+        # print(target_x, target_y)
         # get hand coordinate hand_x, hand_y
-        hand_x = self.armconfig.SIZE_HUMERUS * math.sin(self.theta_1_c) + self.armconfig.SIZE_RADIUS * math.sin(self.theta_1_c + self.theta_2_c)
-        hand_y = self.armconfig.SIZE_HUMERUS * math.cos(self.theta_1_c) + self.armconfig.SIZE_RADIUS * math.cos(self.theta_1_c + self.theta_2_c)
-        
+        hand_y = self.armconfig.SIZE_HUMERUS * math.sin(degrees_to_radians(self.eph.past_theta_1_values[-1])) + self.armconfig.SIZE_RADIUS * math.sin(degrees_to_radians(self.eph.past_theta_1_values[-1]) + degrees_to_radians(self.eph.past_theta_2_values[-1]))
+        hand_x = self.armconfig.SIZE_HUMERUS * math.cos(degrees_to_radians(self.eph.past_theta_1_values[-1])) + self.armconfig.SIZE_RADIUS * math.cos(degrees_to_radians(self.eph.past_theta_1_values[-1]) + degrees_to_radians(self.eph.past_theta_2_values[-1]))
         # print(hand_x, hand_y)
         # print(self.eph.nb_step_done)
-        reward = (-1) * np.sqrt(np.abs(hand_x - target_x) + np.abs(hand_y - target_y)) ** 2 - self.eph.nb_step_done
+        reward = (-1) * np.sqrt(np.abs(hand_x - target_x) + np.abs(hand_y - target_y)) ** 2 
+        print(reward)
         self.eph.current_reward = reward
         self.eph.cum_reward_episode += reward
         self.eph.past_action = action
+
+        if hand_x == target_x and hand_y == target_y:
+            terminated = True
 
         if self.render_mode == "human":
             self.render()
@@ -262,24 +269,26 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             self.armrenderer.close()
 
 
+# PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+from stable_baselines3 import TD3
+from stable_baselines3.common.vec_env import DummyVecEnv
+
 def main():
-    # Initialize the environment
     env = ArmReachingEnv2DTheta(render_mode="human")
-    # env = ArmReachingEnv2DTheta(render_mode=None)
+    env = DummyVecEnv([lambda: env])
+    
+    model = TD3("MlpPolicy", env, verbose=1)
+    model.learn(total_timesteps=25000)
+    model.save("td3_arm_reaching")
 
-    state, _ = env.reset()
-
-    for step in range(MAX_EPISODE_STEPS):
-        action = env.action_space.sample()
-        state, reward, terminated, truncated, info = env.step(action)
-        # print(f"Step: {step}, State: {state}, Reward: {reward}")
-
-        if terminated or truncated:
-            print("Episode finished!")
-            break
+    obs = env.reset()
+    while True:
+        action, _states = model.predict(obs, deterministic=True)
+        obs, rewards, dones, info = env.step(action)
+        print(rewards)
+        env.envs[0].render()
 
     env.close()
-
 
 if __name__ == "__main__":
     main()
