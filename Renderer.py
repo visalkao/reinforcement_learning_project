@@ -77,7 +77,7 @@ class ArmRenderer:
         y_0 = self.HEIGHT / 2
 
         theta_1 = self.eph.past_theta_1_values[-1] + 90
-        theta_2 = self.eph.past_theta_1_values[-1] + (self.eph.past_theta_2_values[-1] / 2) + 90
+        theta_2 = self.eph.past_theta_1_values[-1] + (self.eph.past_theta_2_values[-1]) + 90
 
         rot_humerus_deg = theta_1 
         rot_radius_deg = theta_2 
