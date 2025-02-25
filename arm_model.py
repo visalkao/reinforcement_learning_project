@@ -47,16 +47,12 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             dtype=np.float32,
         )
 
-        high_obs = np.array(
-            [
-                np.inf,  
-                np.inf,  
-            ],
-            dtype=np.float32,
-        )
+        high_obs = np.array([np.inf, np.inf, np.inf, np.inf], dtype=np.float32)
+        self.observation_space = spaces.Box(-high_obs, high_obs, dtype=np.float32)
+
 
         self.action_space = spaces.Box(0, high_action_range, dtype=np.float32)
-        self.observation_space = spaces.Box(-high_obs, high_obs, dtype=np.float32)
+        # self.observation_space = spaces.Box(-high_obs, high_obs, dtype=np.float32)
 
         self.render_mode = render_mode
         self.state: np.ndarray | None = None
@@ -71,6 +67,8 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.target_angle_deg = None
         self.theta_1_c = 70  # Initial shoulder angle, we can initialize it randomly: random.uniform(0, 180)
         self.theta_2_c = 0   # Initial elbow angle, same also here: random.uniform(0, 150)
+        self.target_x  = 0
+        self.target_y = 0
 
         # Muscle activations
         self.muscle_activations = np.zeros(6, dtype=np.float32)
@@ -122,33 +120,51 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.theta_1_c = np.minimum(np.maximum(self.theta_1_c, 0), 180)
         self.theta_2_c = np.minimum(np.maximum(self.theta_2_c, 0), 150)
 
+        terminated = False
 
+        if self.eph.nb_step_done > len(self.eph.target_cartesian):
+            terminated = True
+            # Optionally, you can also use the last target values:
+            target_x = self.eph.target_cartesian[-1][0]
+            target_y = self.eph.target_cartesian[-1][1]
+        else:
+            target_x = self.eph.target_cartesian[self.eph.nb_step_done - 1][0]
+            target_y = self.eph.target_cartesian[self.eph.nb_step_done - 1][1]
+
+
+        self.target_x  = target_x
+        self.target_y = target_y
         self.state = np.array(
             [
                 self.theta_1_c,
-                self.theta_2_c
+                self.theta_2_c,
+                self.target_x,
+                self.target_y
             ],
             dtype=np.float32,
         )
 
 
-        terminated = False
+        
         reward = 0
         
         x_0 = 500 
         y_0 = 500 * 2.5 / 2
 
-        target_x = self.eph.target_cartesian[self.eph.nb_step_done-1][0]
-        target_y = self.eph.target_cartesian[self.eph.nb_step_done-1][1]
+        
 
         # print(target_x, target_y)
         # get hand coordinate hand_x, hand_y
         hand_y = self.armconfig.SIZE_HUMERUS * math.sin(degrees_to_radians(self.eph.past_theta_1_values[-1])) + self.armconfig.SIZE_RADIUS * math.sin(degrees_to_radians(self.eph.past_theta_1_values[-1]) + degrees_to_radians(self.eph.past_theta_2_values[-1]))
         hand_x = self.armconfig.SIZE_HUMERUS * math.cos(degrees_to_radians(self.eph.past_theta_1_values[-1])) + self.armconfig.SIZE_RADIUS * math.cos(degrees_to_radians(self.eph.past_theta_1_values[-1]) + degrees_to_radians(self.eph.past_theta_2_values[-1]))
-        # print(hand_x, hand_y)
-        # print(self.eph.nb_step_done)
+
+
+        # distance as reward
         reward = (-1) * np.sqrt(np.abs(hand_x - target_x) + np.abs(hand_y - target_y)) ** 2 
-        print(reward)
+
+        # distance + number of steps as reward
+        # reward = (-1) * np.sqrt(np.abs(hand_x - target_x) + np.abs(hand_y - target_y)) ** 2 - self.eph.nb_step_done
+        
         self.eph.current_reward = reward
         self.eph.cum_reward_episode += reward
         self.eph.past_action = action
@@ -237,19 +253,22 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                                   self.target_angle_deg, 
                                   self.target_cartesian)
 
+        # At the end of reset, after setting up self.eph, add:
+        # Use the first target (or however you want to initialize them)
+        self.target_x = self.eph.target_cartesian[0][0]
+        self.target_y = self.eph.target_cartesian[0][1]
         self.state = np.array(
-            [
-                self.theta_1_c,
-                self.theta_2_c
-            ],
-            dtype=np.float32,
+            [self.theta_1_c, self.theta_2_c, self.target_x, self.target_y],
+            dtype=np.float32
         )
+
+
 
         if self.render_mode == "human":
             self.armrenderer = ArmRenderer(self.metadata, self.armconfig, self.eph)
             self.render()
 
-        return np.array(self.state, dtype=np.float32), {}
+        return self.state, {}
 
 
     def render(self):
@@ -270,25 +289,70 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
 
 # PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-from stable_baselines3 import TD3
-from stable_baselines3.common.vec_env import DummyVecEnv
+# from stable_baselines3 import TD3
+# from stable_baselines3.common.policies import MlpPolicy
 
+
+
+
+# For A2C
+from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3 import A2C
 def main():
-    env = ArmReachingEnv2DTheta(render_mode="human")
+    env = ArmReachingEnv2DTheta(render_mode="None")
     env = DummyVecEnv([lambda: env])
     
-    model = TD3("MlpPolicy", env, verbose=1)
-    model.learn(total_timesteps=25000)
+    model = A2C("MlpPolicy", env, verbose=1)
+    model.learn(total_timesteps=5000000)
     model.save("td3_arm_reaching")
 
     obs = env.reset()
     while True:
         action, _states = model.predict(obs, deterministic=True)
         obs, rewards, dones, info = env.step(action)
-        print(rewards)
-        env.envs[0].render()
+        print(f"Reward: {rewards}")
+        # print(rewards)
+        # env.envs[0].render()
 
-    env.close()
+    # env.close()
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+# With PPO
+from stable_baselines3 import TD3
+from stable_baselines3.common.vec_env import DummyVecEnv
+
+def main():
+    # Create the environment; use None for render_mode during training
+    env = ArmReachingEnv2DTheta(render_mode=None)
+    env = DummyVecEnv([lambda: env])
+    
+    # Instantiate the TD3 model with the "MlpPolicy"
+    model = TD3("MlpPolicy", env, verbose=1)
+    
+    # Train the model
+    model.learn(total_timesteps=5000000)
+    
+    # Save the trained model
+    model.save("td3_arm_reaching")
+
+    # To evaluate or run the trained model, reset the environment
+    obs = env.reset()
+    while True:
+        action, _states = model.predict(obs, deterministic=True)
+        obs, rewards, dones, info = env.step(action)
+        print(f"Reward: {rewards}")
+        # Render the environment (if your environment supports rendering)
+        # env.envs[0].render()
+
+    # env.close()
 
 if __name__ == "__main__":
     main()
