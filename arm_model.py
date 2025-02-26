@@ -143,32 +143,38 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
 
 
-        # Compute reward based on the distance between the hand and target
-        reward = -1 * np.sqrt(np.abs(hand_x - target_x)** 2 + np.abs(hand_y - target_y)** 2) 
+        # Compute Euclidean distance between hand and target
+        distance = np.sqrt((hand_x - target_x)**2 + (hand_y - target_y)**2)
+        if distance < 10:
+            print("ON Target")
+        # else:
+        #     print()
+        target_threshold = 15.0  # define your target zone
+        on_target_bonus = 1000.0   # bonus per timestep for being on target
+        distance_penalty = 1.0   # penalty scaling factor when off target
+
+        if distance < target_threshold:
+            reward = on_target_bonus
+        else:
+            reward = -distance_penalty * distance
+
         
-        # Compute reward based on the distance between the hand and target + Stepdone
-        # reward = -1 * np.sqrt(np.abs(hand_x - target_x)** 2 + np.abs(hand_y - target_y)** 2)  -  self.eph.nb_step_done
-        
-        # For training
-        if abs(hand_x - target_x) < 10 and abs(hand_y - target_y) < 10:
-            reward = 100 * self.eph.nb_step_done
-            terminated = True
-            print("Terminated")
-            
-        # For testing
-        # if abs(hand_x - target_x) < 60 and abs(hand_y - target_y) < 60:
-        #     reward = 100 * self.eph.nb_step_done
-        #     terminated = True
+        # Instead of this:
+        # if abs(hand_x - target_x) < target_threshold and abs(hand_y - target_y) < target_threshold:
+        #     reward =  10000 * (10 - distance) 
+        #     # terminated = True  <-- remove this line!
         #     print("Terminated")
-        
-
-
-
-
+        # print(reward)
         if self.eph.nb_step_done == MAX_EPISODE_STEPS :
+            if (abs(hand_x - target_x) < 10 and abs(hand_y - target_y) < 10):
+                # reward = MAX_EPISODE_STEPS
+                print("Reach end of EP+++++++++++++++++++++++++++++++++")
+            else:
+                reward = -100 *  MAX_EPISODE_STEPS
+                # print("Reach end of EP--------------")
             terminated = True
-            reward = -100 * self.eph.nb_step_done
-            print("Reach end of EP--------------")
+
+            
         
             
         self.eph.current_reward = reward
@@ -282,7 +288,7 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             self.armrenderer.close()
 
 
-num_ep = 80
+num_ep = 800
 total_timestep = num_ep * MAX_EPISODE_STEPS
 # For A2C
 from stable_baselines3.common.vec_env import DummyVecEnv
@@ -291,7 +297,7 @@ def main():
     env = ArmReachingEnv2DTheta(render_mode=None)
     env = DummyVecEnv([lambda: env])
     
-    model = A2C("MlpPolicy", env, verbose=1, ent_coef=0.01,vf_coef=0.5, n_steps=2000)
+    model = A2C("MlpPolicy", env, verbose=1, ent_coef=0.01,vf_coef=0.6, n_steps=2000)
     model.learn(total_timesteps=total_timestep)
     model.save("A2C_arm_reaching_10_px_5000_steps")
 
@@ -339,34 +345,34 @@ if __name__ == "__main__":
 
 
 # For testing
-# from stable_baselines3 import A2C, TD3
-# from stable_baselines3.common.vec_env import DummyVecEnv
-# # from ArmReachingEnv2DTheta import ArmReachingEnv2DTheta
+from stable_baselines3 import A2C, TD3
+from stable_baselines3.common.vec_env import DummyVecEnv
+# from ArmReachingEnv2DTheta import ArmReachingEnv2DTheta
 
-# def load_and_visualize(model_path, render_mode=None):
-#     # Load the environment
-#     env = ArmReachingEnv2DTheta(render_mode=render_mode)
-#     env = DummyVecEnv([lambda: env])
+def load_and_visualize(model_path, render_mode=None):
+    # Load the environment
+    env = ArmReachingEnv2DTheta(render_mode=render_mode)
+    env = DummyVecEnv([lambda: env])
 
-#     # Load the trained model
-#     if "A2C" in model_path:
-#         model = A2C.load(model_path, env=env)
-#     elif "TD" in model_path:
-#         model = TD3.load(model_path, env=env)
-#     else:
-#         raise ValueError("Model type not recognized. Please specify 'A2C' or 'TD' in the model path.")
+    # Load the trained model
+    if "A2C" in model_path:
+        model = A2C.load(model_path, env=env)
+    elif "TD" in model_path:
+        model = TD3.load(model_path, env=env)
+    else:
+        raise ValueError("Model type not recognized. Please specify 'A2C' or 'TD' in the model path.")
 
-#     # Reset the environment
-#     obs = env.reset()
+    # Reset the environment
+    obs = env.reset()
 
-#     # Run the trained model for visualization
-#     while True:
-#         action, _states = model.predict(obs, deterministic=True)
-#         obs, rewards, dones, info = env.step(action)
-#         print(f"Reward: {rewards}")
-#         env.render()
+    # Run the trained model for visualization
+    while True:
+        action, _states = model.predict(obs, deterministic=True)
+        obs, rewards, dones, info = env.step(action)
+        print(f"Reward: {rewards}")
+        env.render()
 
-# if __name__ == "__main__":
-#     model_path = "td3_arm_reaching_A2C_new_10px.zip"  # Adjust with your actual path
-#     load_and_visualize(model_path, render_mode="human")
+if __name__ == "__main__":
+    model_path = "A2C_arm_reaching_10_px_5000_steps.zip"  # Adjust with your actual path
+    load_and_visualize(model_path, render_mode="human")
 
