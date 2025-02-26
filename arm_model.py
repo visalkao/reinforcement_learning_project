@@ -10,7 +10,7 @@ from Renderer import ArmRenderer
 from scipy.interpolate import CubicSpline
 
 SEED = 19930515
-MAX_EPISODE_STEPS = 2000
+MAX_EPISODE_STEPS = 5000
 FIXED_TARGET = True
 
 Armconfig = namedtuple('Armconfig', ['SIZE_HUMERUS', 'WIDTH_HUMERUS', 'SIZE_RADIUS', 'WIDTH_RADIUS'])
@@ -139,18 +139,44 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         hand_x = (self.armconfig.SIZE_HUMERUS * math.cos(degrees_to_radians(self.eph.past_theta_1_values[-1])) +
                   self.armconfig.SIZE_RADIUS * math.cos(degrees_to_radians(self.eph.past_theta_1_values[-1] + self.eph.past_theta_2_values[-1])))
 
+        reward = 0
+
+
+
         # Compute reward based on the distance between the hand and target
         reward = -1 * np.sqrt(np.abs(hand_x - target_x)** 2 + np.abs(hand_y - target_y)** 2) 
-
+        
+        # Compute reward based on the distance between the hand and target + Stepdone
         # reward = -1 * np.sqrt(np.abs(hand_x - target_x)** 2 + np.abs(hand_y - target_y)** 2)  -  self.eph.nb_step_done
+        
+        # For training
+        if abs(hand_x - target_x) < 10 and abs(hand_y - target_y) < 10:
+            reward = 100 * self.eph.nb_step_done
+            terminated = True
+            print("Terminated")
+            
+        # For testing
+        # if abs(hand_x - target_x) < 60 and abs(hand_y - target_y) < 60:
+        #     reward = 100 * self.eph.nb_step_done
+        #     terminated = True
+        #     print("Terminated")
+        
 
+
+
+
+        if self.eph.nb_step_done == MAX_EPISODE_STEPS :
+            terminated = True
+            reward = -100 * self.eph.nb_step_done
+            print("Reach end of EP--------------")
+        
+            
         self.eph.current_reward = reward
         self.eph.cum_reward_episode += reward
         self.eph.past_action = action
 
         # Check termination condition
-        if hand_x == target_x and hand_y == target_y:
-            terminated = True
+        
 
         if self.render_mode == "human":
             self.render()
@@ -176,6 +202,9 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 (1200, 1800, 0.25),
                 (1800, MAX_EPISODE_STEPS, 0.125)
             ]
+            # intervals = [
+            #     (0, MAX_EPISODE_STEPS, 1)
+            # ]
             
             self.target_cartesian = []
             self.target_angle_deg = []
@@ -253,7 +282,8 @@ class ArmReachingEnv2DTheta(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             self.armrenderer.close()
 
 
-
+num_ep = 80
+total_timestep = num_ep * MAX_EPISODE_STEPS
 # For A2C
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3 import A2C
@@ -261,19 +291,10 @@ def main():
     env = ArmReachingEnv2DTheta(render_mode=None)
     env = DummyVecEnv([lambda: env])
     
-    model = A2C("MlpPolicy", env, verbose=1)
-    model.learn(total_timesteps=600000)
-    model.save("td3_arm_reaching_A2C")
+    model = A2C("MlpPolicy", env, verbose=1, ent_coef=0.01,vf_coef=0.5, n_steps=2000)
+    model.learn(total_timesteps=total_timestep)
+    model.save("A2C_arm_reaching_10_px_5000_steps")
 
-    obs = env.reset()
-    while True:
-        action, _states = model.predict(obs, deterministic=True)
-        obs, rewards, dones, info = env.step(action)
-        print(f"Reward: {rewards}")
-        # print(rewards)
-        # env.envs[0].render()
-
-    # env.close()
 
 if __name__ == "__main__":
     main()
@@ -284,34 +305,68 @@ if __name__ == "__main__":
 
 
 
-# With PPO
-from stable_baselines3 import TD3
-from stable_baselines3.common.vec_env import DummyVecEnv
+# # With TD3
+# from stable_baselines3 import TD3
+# from stable_baselines3.common.vec_env import DummyVecEnv
 
-def main():
-    # Create the environment; use None for render_mode during training
-    env = ArmReachingEnv2DTheta(render_mode=None)
-    env = DummyVecEnv([lambda: env])
+# def main():
+#     # Create the environment; use None for render_mode during training
+#     env = ArmReachingEnv2DTheta(render_mode=None)
+#     env = DummyVecEnv([lambda: env])
     
-    # Instantiate the TD3 model with the "MlpPolicy"
-    model = TD3("MlpPolicy", env, verbose=1)
+#     # Instantiate the TD3 model with the "MlpPolicy"
+#     model = TD3("MlpPolicy", env, verbose=1, ent_coef=0.01,vf_coef=0.5, n_steps=2000)
     
-    # Train the model
-    model.learn(total_timesteps=600000)
+#     # Train the model
+#     model.learn(total_timesteps=total_timestep)
     
-    # Save the trained model
-    model.save("td3_arm_reaching_TD")
+#     # Save the trained model
+#     model.save("td3_arm_reaching_TD_10_px_5000_steps")
 
-    # To evaluate or run the trained model, reset the environment
-    obs = env.reset()
-    while True:
-        action, _states = model.predict(obs, deterministic=True)
-        obs, rewards, dones, info = env.step(action)
-        print(f"Reward: {rewards}")
-        # Render the environment (if your environment supports rendering)
-        # env.envs[0].render()
 
-    # env.close()
+# if __name__ == "__main__":
+#     main()
 
-if __name__ == "__main__":
-    main()
+
+
+
+
+
+
+
+
+
+
+
+# For testing
+# from stable_baselines3 import A2C, TD3
+# from stable_baselines3.common.vec_env import DummyVecEnv
+# # from ArmReachingEnv2DTheta import ArmReachingEnv2DTheta
+
+# def load_and_visualize(model_path, render_mode=None):
+#     # Load the environment
+#     env = ArmReachingEnv2DTheta(render_mode=render_mode)
+#     env = DummyVecEnv([lambda: env])
+
+#     # Load the trained model
+#     if "A2C" in model_path:
+#         model = A2C.load(model_path, env=env)
+#     elif "TD" in model_path:
+#         model = TD3.load(model_path, env=env)
+#     else:
+#         raise ValueError("Model type not recognized. Please specify 'A2C' or 'TD' in the model path.")
+
+#     # Reset the environment
+#     obs = env.reset()
+
+#     # Run the trained model for visualization
+#     while True:
+#         action, _states = model.predict(obs, deterministic=True)
+#         obs, rewards, dones, info = env.step(action)
+#         print(f"Reward: {rewards}")
+#         env.render()
+
+# if __name__ == "__main__":
+#     model_path = "td3_arm_reaching_A2C_new_10px.zip"  # Adjust with your actual path
+#     load_and_visualize(model_path, render_mode="human")
+
